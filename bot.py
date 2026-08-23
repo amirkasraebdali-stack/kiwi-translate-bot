@@ -1,5 +1,7 @@
 import re
 import os
+import threading
+from flask import Flask
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message
 from deep_translator import GoogleTranslator
@@ -71,6 +73,18 @@ async def copy_handler(client: Client, message: Message):
     finally:
         if file_path and os.path.exists(file_path):
             os.remove(file_path)
+
+web = Flask(__name__)
+
+@web.route('/')
+def home():
+    return "Bot is alive!"
+
+def run_web():
+    port = int(os.environ.get("PORT", 8080))
+    web.run(host="0.0.0.0", port=port)
+
+threading.Thread(target=run_web).start()
 
 bot.start()
 user.start()
