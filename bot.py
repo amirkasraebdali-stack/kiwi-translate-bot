@@ -88,6 +88,8 @@ threading.Thread(target=run_web).start()
 
 bot.start()
 user.start()
+me = user.get_me()
+print(f"### USER SESSION IS: {me.first_name} | is_bot={me.is_bot} | id={me.id} ###")
 try:
     user.join_chat(SOURCE_USERNAME)
 except Exception as e:
