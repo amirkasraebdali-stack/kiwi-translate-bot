@@ -62,12 +62,12 @@ async def copy_handler(client: Client, message: Message):
 
         if message.photo:
             file_path = await client.download_media(message.photo.file_id)
-            await bot.send_photo(DEST_CHAT, photo=file_path, caption=final_caption, parse_mode="html")
+            await bot.send_photo(DEST_CHAT, photo=file_path, caption=final_caption)
         elif message.video:
             file_path = await client.download_media(message.video.file_id)
-            await bot.send_video(DEST_CHAT, video=file_path, caption=final_caption, parse_mode="html")
+            await bot.send_video(DEST_CHAT, video=file_path, caption=final_caption)
         elif message.text:
-            await bot.send_message(DEST_CHAT, text=final_caption, parse_mode="html")
+            await bot.send_message(DEST_CHAT, text=final_caption)
     except Exception as e:
         print(f"خطا در ارسال پیام {message.id}: {e}")
     finally:
@@ -88,8 +88,6 @@ threading.Thread(target=run_web).start()
 
 bot.start()
 user.start()
-me = user.get_me()
-print(f"### USER SESSION IS: {me.first_name} | is_bot={me.is_bot} | id={me.id} ###")
 try:
     user.join_chat(SOURCE_USERNAME)
 except Exception as e:
