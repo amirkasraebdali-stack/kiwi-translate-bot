@@ -1,5 +1,6 @@
 import re
 import os
+import time
 import threading
 from flask import Flask
 from pyrogram import Client, filters, idle
@@ -37,16 +38,20 @@ def clean_text(text: str) -> str:
 def translate_to_fa(text: str) -> str:
     if not text:
         return ""
-    try:
-        return GoogleTranslator(source="auto", target="fa").translate(text)
-    except Exception as e:
-        print(f"خطای ترجمه: {e}")
-        return text
+    for attempt in range(3):
+        try:
+            result = GoogleTranslator(source="auto", target="fa").translate(text)
+            if result:
+                return result
+        except Exception as e:
+            print(f"خطای ترجمه (تلاش {attempt+1}): {e}")
+            time.sleep(2)
+    return text
 
 def build_caption(text: str) -> str:
     if not text:
         return SIGNATURE
-    return f"<b>{text}</b>{SIGNATURE}"
+    return f"{text}{SIGNATURE}"
 
 user = Client("kiwi_user_session", api_id=API_ID, api_hash=API_HASH, session_string=SESSION_STRING)
 bot = Client("kiwi_bot_session", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
