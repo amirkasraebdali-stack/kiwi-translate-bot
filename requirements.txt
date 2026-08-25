@@ -1,4 +1,4 @@
 kurigram
 tgcrypto
-deep-translator
+translators
 flask
