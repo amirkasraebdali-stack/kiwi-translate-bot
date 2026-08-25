@@ -1,11 +1,10 @@
 import re
 import os
-import time
 import threading
 from flask import Flask
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message
-from deep_translator import GoogleTranslator
+import translators as ts
 
 API_ID = int(os.environ["API_ID"])
 API_HASH = os.environ["API_HASH"]
@@ -38,14 +37,14 @@ def clean_text(text: str) -> str:
 def translate_to_fa(text: str) -> str:
     if not text:
         return ""
-    for attempt in range(3):
+    translators_list = ["bing", "google", "alibaba"]
+    for name in translators_list:
         try:
-            result = GoogleTranslator(source="auto", target="fa").translate(text)
+            result = ts.translate_text(text, translator=name, from_language="ru", to_language="fa")
             if result:
                 return result
         except Exception as e:
-            print(f"خطای ترجمه (تلاش {attempt+1}): {e}")
-            time.sleep(2)
+            print(f"خطای ترجمه با {name}: {e}")
     return text
 
 def build_caption(text: str) -> str:
