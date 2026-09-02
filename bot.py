@@ -28,9 +28,7 @@ PROMO_PATTERNS = [
     r"\[.*?\]\(.*?\)",
 ]
 
-# ===== لیست اسامی و اصطلاحات فرمول یک (روسی -> فارسی صحیح) =====
 F1_NAMES = {
-    # راننده‌ها
     "Ферстаппен": "فرستاپن",
     "Хэмилтон": "همیلتون",
     "Леклер": "لکلر",
@@ -58,8 +56,6 @@ F1_NAMES = {
     "Антонелли": "آنتونلی",
     "Хадьяр": "حاجر",
     "Дуэн": "دوهان",
-
-    # تیم‌ها
     "Ред Булл": "رد بول",
     "Феррари": "فراری",
     "Мерседес": "مرسدس",
@@ -72,8 +68,6 @@ F1_NAMES = {
     "Кик Заубер": "کیک زاوبر",
     "Рейсинг Буллз": "ریسینگ بولز",
     "Виза Кэш Апп": "ویزا کش اپ",
-
-    # مدیران و افراد کلیدی
     "Хорнер": "هورنر",
     "Тото Вольфф": "توتو ولف",
     "Вольфф": "ولف",
@@ -82,8 +76,6 @@ F1_NAMES = {
     "Браун": "براون",
     "Домиканс": "دومنیکالی",
     "Доменикали": "دومنیکالی",
-
-    # پیست‌ها
     "Монца": "مونزا",
     "Сильверстоун": "سیلورستون",
     "Спа": "اسپا",
@@ -108,8 +100,6 @@ F1_NAMES = {
     "Катар": "قطر",
     "Шанхай": "شانگهای",
     "Майами": "میامی",
-
-    # اصطلاحات فنی
     "пит-стоп": "پیت استاپ",
     "квалификация": "کوالیفای",
     "болид": "خودرو",
@@ -172,26 +162,32 @@ bot = Client("kiwi_bot_session", api_id=API_ID, api_hash=API_HASH, bot_token=BOT
 media_group_buffer = {}
 
 async def process_single_message(message: Message):
-    file_path = None
-    try:
-        raw_text = message.caption or message.text or ""
-        cleaned = clean_text(raw_text)
-        translated = translate_to_fa(cleaned) if cleaned else ""
-        final_caption = build_caption(translated)
+    for attempt in range(3):
+        file_path = None
+        try:
+            raw_text = message.caption or message.text or ""
+            cleaned = clean_text(raw_text)
+            translated = translate_to_fa(cleaned) if cleaned else ""
+            final_caption = build_caption(translated)
 
-        if message.photo:
-            file_path = await message.download()
-            await bot.send_photo(DEST_CHAT, photo=file_path, caption=final_caption)
-        elif message.video:
-            file_path = await message.download()
-            await bot.send_video(DEST_CHAT, video=file_path, caption=final_caption)
-        elif message.text:
-            await bot.send_message(DEST_CHAT, text=final_caption)
-    except Exception as e:
-        print(f"خطا در ارسال پیام {message.id}: {e}")
-    finally:
-        if file_path and os.path.exists(file_path):
-            os.remove(file_path)
+            if message.photo:
+                file_path = await message.download()
+                await bot.send_photo(DEST_CHAT, photo=file_path, caption=final_caption)
+            elif message.video:
+                file_path = await message.download()
+                await bot.send_video(DEST_CHAT, video=file_path, caption=final_caption)
+            elif message.text:
+                await bot.send_message(DEST_CHAT, text=final_caption)
+
+            if file_path and os.path.exists(file_path):
+                os.remove(file_path)
+            return
+        except Exception as e:
+            print(f"خطا در ارسال پیام {message.id} (تلاش {attempt+1}): {e}")
+            if file_path and os.path.exists(file_path):
+                os.remove(file_path)
+            await asyncio.sleep(5)
+    print(f"پیام {message.id} پس از ۳ تلاش ناموفق ماند.")
 
 async def process_media_group(gid):
     await asyncio.sleep(2)
@@ -210,28 +206,35 @@ async def process_media_group(gid):
     translated = translate_to_fa(cleaned) if cleaned else ""
     final_caption = build_caption(translated)
 
-    media_list = []
-    file_paths = []
-    try:
-        for i, m in enumerate(messages):
-            cap = final_caption if i == 0 else None
-            if m.photo:
-                fp = await m.download()
-                file_paths.append(fp)
-                media_list.append(InputMediaPhoto(fp, caption=cap))
-            elif m.video:
-                fp = await m.download()
-                file_paths.append(fp)
-                media_list.append(InputMediaVideo(fp, caption=cap))
+    for attempt in range(3):
+        media_list = []
+        file_paths = []
+        try:
+            for i, m in enumerate(messages):
+                cap = final_caption if i == 0 else None
+                if m.photo:
+                    fp = await m.download()
+                    file_paths.append(fp)
+                    media_list.append(InputMediaPhoto(fp, caption=cap))
+                elif m.video:
+                    fp = await m.download()
+                    file_paths.append(fp)
+                    media_list.append(InputMediaVideo(fp, caption=cap))
 
-        if media_list:
-            await bot.send_media_group(DEST_CHAT, media_list)
-    except Exception as e:
-        print(f"خطا در ارسال آلبوم: {e}")
-    finally:
-        for fp in file_paths:
-            if os.path.exists(fp):
-                os.remove(fp)
+            if media_list:
+                await bot.send_media_group(DEST_CHAT, media_list)
+
+            for fp in file_paths:
+                if os.path.exists(fp):
+                    os.remove(fp)
+            return
+        except Exception as e:
+            print(f"خطا در ارسال آلبوم (تلاش {attempt+1}): {e}")
+            for fp in file_paths:
+                if os.path.exists(fp):
+                    os.remove(fp)
+            await asyncio.sleep(5)
+    print(f"آلبوم {gid} پس از ۳ تلاش ناموفق ماند.")
 
 @user.on_message(filters.chat(SOURCE_CHAT))
 async def copy_handler(client: Client, message: Message):
@@ -242,7 +245,7 @@ async def copy_handler(client: Client, message: Message):
             asyncio.create_task(process_media_group(gid))
         media_group_buffer[gid].append(message)
         return
-    await process_single_message(message)
+    asyncio.create_task(process_single_message(message))
 
 web = Flask(__name__)
 
