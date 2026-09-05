@@ -5,12 +5,16 @@ import threading
 from flask import Flask
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InputMediaPhoto, InputMediaVideo
-import translators as ts
+import google.generativeai as genai
 
 API_ID = int(os.environ["API_ID"])
 API_HASH = os.environ["API_HASH"]
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 SESSION_STRING = os.environ["SESSION_STRING"]
+GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+
+genai.configure(api_key=GEMINI_API_KEY)
+gemini_model = genai.GenerativeModel("gemini-2.5-flash")
 
 SOURCE_CHAT = -1001106437375
 DEST_CHAT = -1003817622977
@@ -28,52 +32,22 @@ PROMO_PATTERNS = [
     r"\[.*?\]\(.*?\)",
 ]
 
-F1_NAMES = {
-    "Ферстаппен": "فرستاپن", "Хэмилтон": "همیلتون", "Леклер": "لکلر",
-    "Норрис": "نوریس", "Расселл": "راسل", "Сайнс": "ساینز",
-    "Пиастри": "پیاستری", "Перес": "پرز", "Алонсо": "آلونسو",
-    "Стролл": "استرول", "Окон": "اوکان", "Гасли": "گاسلی",
-    "Албон": "آلبون", "Сарджент": "سارجنت", "Колапинто": "کولاپینتو",
-    "Цунода": "سونودا", "Райкконен": "رایکونن", "Боттас": "بوتاس",
-    "Дзоу": "ژو", "Хюлькенберг": "هولکنبرگ", "Магнуссен": "ماگنوسن",
-    "Риккардо": "ریکاردو", "Лоусон": "لاوسون", "Бирман": "بیرمن",
-    "Антонелли": "آنتونلی", "Хадьяр": "حاجر", "Дуэн": "دوهان",
-    "Ред Булл": "رد بول", "Феррари": "فراری", "Мерседес": "مرسدس",
-    "Макларен": "مک‌لارن", "Астон Мартин": "استون مارتین", "Альпин": "آلپاین",
-    "Уильямс": "ویلیامز", "Хаас": "هاس", "Заубер": "زاوبر",
-    "Кик Заубер": "کیک زاوبر", "Рейсинг Буллз": "ریسینگ بولز",
-    "Виза Кэш Апп": "ویزا کش اپ", "Хорнер": "هورنر", "Тото Вольфф": "توتو ولف",
-    "Вольфф": "ولف", "Виссер": "واسور", "Васер": "واسور", "Браун": "براون",
-    "Домиканс": "دومنیکالی", "Доменикали": "دومنیکالی", "Монца": "مونزا",
-    "Сильверстоун": "سیلورستون", "Спа": "اسپا", "Монако": "موناکو",
-    "Сузука": "سوزوکا", "Интерлагос": "اینترلاگوس", "Абу-Даби": "ابوظبی",
-    "Бахрейн": "بحرین", "Джидда": "جده", "Мельбурн": "ملبورن",
-    "Имола": "ایمولا", "Барселона": "بارسلونا", "Ред Булл Ринг": "رد بول رینگ",
-    "Будапешт": "بوداپست", "Зандворт": "زاندورت", "Баку": "باکو",
-    "Сингапур": "سنگاپور", "Остин": "آستین", "Мехико": "مکزیکوسیتی",
-    "Лас-Вегас": "لاس‌وگاس", "Лусаил": "لوسیل", "Катар": "قطر",
-    "Шанхай": "شانگهای", "Майами": "میامی", "пит-стоп": "پیت استاپ",
-    "квалификация": "کوالیفای", "болид": "خودرو", "гонка": "مسابقه",
-    "чемпионат": "قهرمانی", "подиум": "سکو", "поул-позиция": "پول پوزیشن",
-    "штраф": "جریمه", "сход": "کناره‌گیری", "обгон": "سبقت",
-    "шины": "لاستیک", "дождь": "باران",
-}
+TRANSLATION_PROMPT = """تو یک مترجم حرفه‌ای اخبار ورزشی فرمول یک هستی. متن روسی زیر را به فارسی روان، طبیعی، و کاملاً خبری ترجمه کن.
 
-def protect_names(text: str):
-    placeholders = {}
-    idx = 0
-    for ru_name in sorted(F1_NAMES.keys(), key=len, reverse=True):
-        if ru_name in text:
-            placeholder = f"XNM{idx}X"
-            text = text.replace(ru_name, placeholder)
-            placeholders[placeholder] = F1_NAMES[ru_name]
-            idx += 1
-    return text, placeholders
+قوانین مهم:
+- جمله‌بندی باید کاملاً طبیعی و روان فارسی باشد، نه ترجمه‌ی کلمه‌به‌کلمه.
+- اسامی رانندگان و افراد فرمول یک را با تلفظ صحیح فارسی بنویس، مثال‌ها:
+  Verstappen=فرستاپن, Hamilton=همیلتون, Leclerc=لکلرک, Norris=نوریس, Russell=راسل,
+  Sainz=ساینز, Piastri=پیاستری, Perez=پرز, Alonso=آلونسو, Hadjar=حجار,
+  Antonelli=آنتونلی, Tsunoda=سونودا, Bearman=بیرمن, Hulkenberg=هولکنبرگ
+- اسامی تیم‌ها: Red Bull=رد بول, Ferrari=فراری, Mercedes=مرسدس, McLaren=مک‌لارن,
+  Aston Martin=استون مارتین, Alpine=آلپاین, Williams=ویلیامز, Haas=هاس
+- اسامی پیست‌ها: Monza=مونزا, Silverstone=سیلورستون, Monaco=موناکو, Suzuka=سوزوکا,
+  Spa=اسپا, Baku=باکو, Singapore=سنگاپور, Abu Dhabi=ابوظبی
+- فقط متن ترجمه‌شده‌ی نهایی را برگردان، بدون هیچ توضیح اضافه، بدون مقدمه، بدون گیومه.
 
-def restore_names(text: str, placeholders: dict) -> str:
-    for placeholder, name in placeholders.items():
-        text = text.replace(placeholder, name)
-    return text
+متن روسی:
+"""
 
 def clean_text(text: str) -> str:
     if not text:
@@ -85,14 +59,13 @@ def clean_text(text: str) -> str:
 def translate_to_fa(text: str) -> str:
     if not text:
         return ""
-    protected_text, placeholders = protect_names(text)
-    for name in ["bing", "google", "alibaba"]:
-        try:
-            result = ts.translate_text(protected_text, translator=name, from_language="ru", to_language="fa")
-            if result:
-                return restore_names(result, placeholders)
-        except Exception as e:
-            print(f"خطای ترجمه با {name}: {e}")
+    try:
+        response = gemini_model.generate_content(TRANSLATION_PROMPT + text)
+        result = response.text.strip()
+        if result:
+            return result
+    except Exception as e:
+        print(f"خطای ترجمه با Gemini: {e}")
     return text
 
 def build_caption(text: str) -> str:
@@ -184,7 +157,7 @@ async def process_media_group(gid):
 
 @user.on_message(filters.chat(SOURCE_CHAT))
 async def copy_handler(client: Client, message: Message):
-    print(f"### پیام جدید دریافت شد: id={message.id} از چت {message.chat.id} ###")
+    print(f"### پیام جدید دریافت شد: id={message.id} ###")
     if message.media_group_id:
         gid = message.media_group_id
         if gid not in media_group_buffer:
@@ -208,18 +181,10 @@ threading.Thread(target=run_web).start()
 
 bot.start()
 user.start()
-
-try:
-    me = user.get_me()
-    print(f"### USER OK: {me.first_name} | id={me.id} | phone={me.phone_number} ###")
-except Exception as e:
-    print(f"### USER SESSION ERROR: {e} ###")
-
 try:
     user.join_chat(SOURCE_USERNAME)
 except Exception as e:
     print(f"جوین نشد یا از قبل عضو است: {e}")
-
 print("ربات فعال است...")
 idle()
 user.stop()
