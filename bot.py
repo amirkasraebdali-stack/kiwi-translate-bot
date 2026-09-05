@@ -5,16 +5,12 @@ import threading
 from flask import Flask
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InputMediaPhoto, InputMediaVideo
-import google.generativeai as genai
+import translators as ts
 
 API_ID = int(os.environ["API_ID"])
 API_HASH = os.environ["API_HASH"]
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 SESSION_STRING = os.environ["SESSION_STRING"]
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-
-genai.configure(api_key=GEMINI_API_KEY)
-gemini_model = genai.GenerativeModel("gemini-2.5-flash")
 
 SOURCE_CHAT = -1001106437375
 DEST_CHAT = -1003817622977
@@ -32,22 +28,52 @@ PROMO_PATTERNS = [
     r"\[.*?\]\(.*?\)",
 ]
 
-TRANSLATION_PROMPT = """تو یک مترجم حرفه‌ای اخبار ورزشی فرمول یک هستی. متن روسی زیر را به فارسی روان، طبیعی، و کاملاً خبری ترجمه کن.
+F1_NAMES = {
+    "Ферстаппен": "ورستپن", "Хэмилтон": "همیلتون", "Леклер": "لکلرک",
+    "Норрис": "نوریس", "Расселл": "راسل", "Сайнс": "ساینز",
+    "Пиастри": "پیاستری", "Перес": "پرز", "Алонсо": "آلونسو",
+    "Стролл": "استرول", "Окон": "اوکون", "Гасли": "گاسلی",
+    "Албон": "آلبون", "Сарджент": "سارجنت", "Колапинто": "کولاپینتو",
+    "Цунода": "سونودا", "Райкконен": "رایکونن", "Боттас": "بوتاس",
+    "Дзоу": "ژو", "Хюлькенберг": "هولکنبرگ", "Магнуссен": "ماگنوسن",
+    "Риккардо": "ریکاردو", "Лоусон": "لاوسون", "Бирман": "برمن",
+    "Антонелли": "آنتونلی", "Хадьяр": "حجار", "Дуэн": "دوهان",
+    "Ред Булл": "ردبول", "Феррари": "فراری", "Мерседес": "مرسدس",
+    "Макларен": "مک‌لارن", "Астон Мартин": "استون مارتین", "Альпин": "آلپاین",
+    "Уильямс": "ویلیامز", "Хаас": "هاس", "Заубер": "زاوبر",
+    "Кик Заубер": "کیک ساوبر", "Рейсинг Буллз": "ریسینگ بولز",
+    "Виза Кэш Апп": "ویزا کش اپ", "Хорнер": "هورنر", "Тото Вольфф": "توتو ولف",
+    "Вольфф": "ولف", "Виссер": "واسور", "Васер": "واسور", "Браун": "براون",
+    "Домиканс": "دومنیکالی", "Доменикали": "دومنیکالی", "Монца": "مونزا",
+    "Сильверстоун": "سیلورستون", "Спа": "اسپا", "Монако": "موناکو",
+    "Сузука": "سوزوکا", "Интерлагос": "اینترلاگوس", "Абу-Даби": "ابوظبی",
+    "Бахрейн": "بحرین", "Джидда": "جده", "Мельбурн": "ملبورن",
+    "Имола": "ایمولا", "Барселона": "بارسلونا", "Ред Булл Ринг": "رد بول رینگ",
+    "Будапешт": "بوداپست", "Зандворт": "زاندورت", "Баку": "باکو",
+    "Сингапур": "سنگاپور", "Остин": "آستین", "Мехико": "مکزیکوسیتی",
+    "Лас-Вегас": "لاس‌وگاس", "Лусаил": "لوسیل", "Катар": "قطر",
+    "Шанхай": "شانگهای", "Майами": "میامی", "пит-стоп": "پیت استاپ",
+    "квалификация": "کوالیفای", "болид": "خودرو", "гонка": "مسابقه",
+    "чемпионат": "قهرمانی", "подиум": "سکو", "поул-позиция": "پول پوزیشن",
+    "штраф": "جریمه", "сход": "کناره‌گیری", "обгон": "سبقت",
+    "шины": "لاستیک", "дождь": "باران",
+}
 
-قوانین مهم:
-- جمله‌بندی باید کاملاً طبیعی و روان فارسی باشد، نه ترجمه‌ی کلمه‌به‌کلمه.
-- اسامی رانندگان و افراد فرمول یک را با تلفظ صحیح فارسی بنویس، مثال‌ها:
-  Verstappen=فرستاپن, Hamilton=همیلتون, Leclerc=لکلرک, Norris=نوریس, Russell=راسل,
-  Sainz=ساینز, Piastri=پیاستری, Perez=پرز, Alonso=آلونسو, Hadjar=حجار,
-  Antonelli=آنتونلی, Tsunoda=سونودا, Bearman=بیرمن, Hulkenberg=هولکنبرگ
-- اسامی تیم‌ها: Red Bull=رد بول, Ferrari=فراری, Mercedes=مرسدس, McLaren=مک‌لارن,
-  Aston Martin=استون مارتین, Alpine=آلپاین, Williams=ویلیامز, Haas=هاس
-- اسامی پیست‌ها: Monza=مونزا, Silverstone=سیلورستون, Monaco=موناکو, Suzuka=سوزوکا,
-  Spa=اسپا, Baku=باکو, Singapore=سنگاپور, Abu Dhabi=ابوظبی
-- فقط متن ترجمه‌شده‌ی نهایی را برگردان، بدون هیچ توضیح اضافه، بدون مقدمه، بدون گیومه.
+def protect_names(text: str):
+    placeholders = {}
+    idx = 0
+    for ru_name in sorted(F1_NAMES.keys(), key=len, reverse=True):
+        if ru_name in text:
+            placeholder = f"XNM{idx}X"
+            text = text.replace(ru_name, placeholder)
+            placeholders[placeholder] = F1_NAMES[ru_name]
+            idx += 1
+    return text, placeholders
 
-متن روسی:
-"""
+def restore_names(text: str, placeholders: dict) -> str:
+    for placeholder, name in placeholders.items():
+        text = text.replace(placeholder, name)
+    return text
 
 def clean_text(text: str) -> str:
     if not text:
@@ -59,13 +85,14 @@ def clean_text(text: str) -> str:
 def translate_to_fa(text: str) -> str:
     if not text:
         return ""
-    try:
-        response = gemini_model.generate_content(TRANSLATION_PROMPT + text)
-        result = response.text.strip()
-        if result:
-            return result
-    except Exception as e:
-        print(f"خطای ترجمه با Gemini: {e}")
+    protected_text, placeholders = protect_names(text)
+    for name in ["bing", "google", "alibaba"]:
+        try:
+            result = ts.translate_text(protected_text, translator=name, from_language="ru", to_language="fa")
+            if result:
+                return restore_names(result, placeholders)
+        except Exception as e:
+            print(f"خطای ترجمه با {name}: {e}")
     return text
 
 def build_caption(text: str) -> str:
