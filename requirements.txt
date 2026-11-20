@@ -2,4 +2,3 @@ kurigram
 tgcrypto
 translators
 flask
-requests
