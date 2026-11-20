@@ -1,9 +1,7 @@
 import re
 import os
-import time
 import asyncio
 import threading
-import requests
 from flask import Flask
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InputMediaPhoto, InputMediaVideo
@@ -13,8 +11,6 @@ API_ID = int(os.environ["API_ID"])
 API_HASH = os.environ["API_HASH"]
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 SESSION_STRING = os.environ["SESSION_STRING"]
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 SOURCE_CHAT = -1001106437375
 DEST_CHAT = -1003817622977
@@ -71,19 +67,21 @@ F1_NAMES = {
     "пилотов": "رانندگان", "пилоты": "رانندگان",
 }
 
-SYSTEM_PROMPT = (
-    "تو سردبیر و مترجم حرفه‌ای یک کانال خبری فرمول یک به زبان فارسی هستی. "
-    "متن روسی را به فارسی روان، طبیعی و خبری بازنویسی کن، نه ترجمه کلمه‌به‌کلمه. "
-    "جمله‌ها باید کوتاه، تمیز و مثل خبرگزاری‌های ورزشی فارسی باشند. "
-    "«гонщик» و «пилот» در این متن‌ها یعنی «راننده»، نه خلبان. "
-    "عدد، رکورد، زمان و نام‌ها را دقیق نگه دار و چیزی اضافه یا حذف نکن. "
-    "اگر فهرست معادل‌ها داده شد، همان املا را عیناً به‌کار ببر. "
-    "ساختار خط‌ها و پاراگراف‌ها را حفظ کن. "
-    "فقط متن نهایی فارسی را بنویس، بدون توضیح، مقدمه یا گیومه اضافه."
-)
+def protect_names(text: str):
+    placeholders = {}
+    idx = 0
+    for ru_name in sorted(F1_NAMES.keys(), key=len, reverse=True):
+        if ru_name in text:
+            placeholder = f"XNM{idx}X"
+            text = text.replace(ru_name, placeholder)
+            placeholders[placeholder] = F1_NAMES[ru_name]
+            idx += 1
+    return text, placeholders
 
-def build_glossary(text: str) -> str:
-    return "\n".join(f"{ru} = {fa}" for ru, fa in F1_NAMES.items() if ru in text)
+def restore_names(text: str, placeholders: dict) -> str:
+    for placeholder, name in placeholders.items():
+        text = text.replace(placeholder, name)
+    return text
 
 def clean_text(text: str) -> str:
     if not text:
@@ -92,68 +90,18 @@ def clean_text(text: str) -> str:
         text = re.sub(pattern, "", text, flags=re.IGNORECASE)
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
-def translate_groq(text: str) -> str:
-    if not GROQ_API_KEY:
-        return ""
-    glossary = build_glossary(text)
-    user_text = text
-    if glossary:
-        user_text = f"فهرست معادل‌ها:\n{glossary}\n\nمتن:\n{text}"
-    payload = {
-        "model": GROQ_MODEL,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_text},
-        ],
-        "temperature": 0.3,
-    }
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    for attempt in range(3):
-        try:
-            r = requests.post(url, json=payload, headers=headers, timeout=60)
-            if r.status_code == 200:
-                result = r.json()["choices"][0]["message"]["content"].strip()
-                return result
-            print(f"خطای Groq {r.status_code}: {r.text[:300]}")
-            if r.status_code in (429, 500, 503):
-                time.sleep(4 * (attempt + 1))
-                continue
-            return ""
-        except Exception as e:
-            print(f"خطای Groq (تلاش {attempt+1}): {e}")
-            time.sleep(3)
-    return ""
-
-def translate_fallback(text: str) -> str:
-    placeholders = {}
-    idx = 0
-    protected = text
-    for ru in sorted(F1_NAMES.keys(), key=len, reverse=True):
-        if ru in protected:
-            ph = f"XNM{idx}X"
-            protected = protected.replace(ru, ph)
-            placeholders[ph] = F1_NAMES[ru]
-            idx += 1
-    for name in ["bing", "google", "alibaba"]:
-        try:
-            result = ts.translate_text(protected, translator=name, from_language="ru", to_language="fa")
-            if result:
-                for ph, fa in placeholders.items():
-                    result = result.replace(ph, fa)
-                return result
-        except Exception as e:
-            print(f"خطای ترجمه با {name}: {e}")
-    return text
-
 def translate_to_fa(text: str) -> str:
     if not text:
         return ""
-    result = translate_groq(text)
-    if result:
-        return result
-    print("Groq جواب نداد، ترجمه جایگزین استفاده شد.")
-    return translate_fallback(text)
+    protected_text, placeholders = protect_names(text)
+    for name in ["bing", "google", "alibaba"]:
+        try:
+            result = ts.translate_text(protected_text, translator=name, from_language="ru", to_language="fa")
+            if result:
+                return restore_names(result, placeholders)
+        except Exception as e:
+            print(f"خطای ترجمه با {name}: {e}")
+    return text
 
 def build_caption(text: str) -> str:
     if not text:
@@ -166,14 +114,14 @@ bot = Client("kiwi_bot_session", api_id=API_ID, api_hash=API_HASH, bot_token=BOT
 media_group_buffer = {}
 
 async def process_single_message(message: Message):
-    raw_text = message.caption or message.text or ""
-    cleaned = clean_text(raw_text)
-    translated = await asyncio.to_thread(translate_to_fa, cleaned) if cleaned else ""
-    final_caption = build_caption(translated)
-
     for attempt in range(3):
         file_path = None
         try:
+            raw_text = message.caption or message.text or ""
+            cleaned = clean_text(raw_text)
+            translated = await asyncio.to_thread(translate_to_fa, cleaned) if cleaned else ""
+            final_caption = build_caption(translated)
+
             if message.photo:
                 file_path = await message.download()
                 await bot.send_photo(DEST_CHAT, photo=file_path, caption=final_caption)
@@ -272,7 +220,7 @@ try:
     user.join_chat(SOURCE_USERNAME)
 except Exception as e:
     print(f"جوین نشد یا از قبل عضو است: {e}")
-print(f"ربات فعال است... مدل ترجمه: {GROQ_MODEL}")
+print("ربات فعال است...")
 idle()
 user.stop()
 bot.stop()
